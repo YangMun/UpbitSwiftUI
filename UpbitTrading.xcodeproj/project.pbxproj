@@ -14,8 +14,10 @@
 		819028E92C9CFA9D00AB6732 /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819028E82C9CFA9D00AB6732 /* KeyManager.swift */; };
 		819028EB2C9CFB2700AB6732 /* MainPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819028EA2C9CFB2700AB6732 /* MainPage.swift */; };
 		819028ED2C9CFB7800AB6732 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819028EC2C9CFB7800AB6732 /* ContentView.swift */; };
-		819028EF2C9CFF3100AB6732 /* FetchStocksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819028EE2C9CFF3100AB6732 /* FetchStocksView.swift */; };
 		819028F12C9D054A00AB6732 /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 819028F02C9D054A00AB6732 /* .gitignore */; };
+		819029132C9D2F1900AB6732 /* MySQLKit in Frameworks */ = {isa = PBXBuildFile; productRef = 819029122C9D2F1900AB6732 /* MySQLKit */; };
+		819029192C9D4D5300AB6732 /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819029182C9D4D5300AB6732 /* DatabaseManager.swift */; };
+		8190291C2C9D4E8100AB6732 /* UpbitAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8190291B2C9D4E8100AB6732 /* UpbitAPI.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,8 +31,9 @@
 		819028E82C9CFA9D00AB6732 /* KeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyManager.swift; sourceTree = "<group>"; };
 		819028EA2C9CFB2700AB6732 /* MainPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainPage.swift; sourceTree = "<group>"; };
 		819028EC2C9CFB7800AB6732 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		819028EE2C9CFF3100AB6732 /* FetchStocksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FetchStocksView.swift; sourceTree = "<group>"; };
 		819028F02C9D054A00AB6732 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		819029182C9D4D5300AB6732 /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
+		8190291B2C9D4E8100AB6732 /* UpbitAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpbitAPI.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +41,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				819029132C9D2F1900AB6732 /* MySQLKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -64,13 +68,13 @@
 		819028D42C9C495B00AB6732 /* UpbitTrading */ = {
 			isa = PBXGroup;
 			children = (
+				8190291A2C9D4E6800AB6732 /* AddMysql */,
 				819028E72C9CFA8F00AB6732 /* ClassFile */,
 				819028E62C9CFA7E00AB6732 /* Info.plist */,
 				819028D52C9C495B00AB6732 /* UpbitTradingApp.swift */,
 				819028EC2C9CFB7800AB6732 /* ContentView.swift */,
 				819028D72C9C495B00AB6732 /* LoginPage.swift */,
 				819028EA2C9CFB2700AB6732 /* MainPage.swift */,
-				819028EE2C9CFF3100AB6732 /* FetchStocksView.swift */,
 				819028D92C9C495C00AB6732 /* Assets.xcassets */,
 				819028DE2C9C495C00AB6732 /* UpbitTrading.entitlements */,
 				819028DB2C9C495C00AB6732 /* Preview Content */,
@@ -94,6 +98,15 @@
 			path = ClassFile;
 			sourceTree = "<group>";
 		};
+		8190291A2C9D4E6800AB6732 /* AddMysql */ = {
+			isa = PBXGroup;
+			children = (
+				8190291B2C9D4E8100AB6732 /* UpbitAPI.swift */,
+				819029182C9D4D5300AB6732 /* DatabaseManager.swift */,
+			);
+			path = AddMysql;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -110,6 +123,9 @@
 			dependencies = (
 			);
 			name = UpbitTrading;
+			packageProductDependencies = (
+				819029122C9D2F1900AB6732 /* MySQLKit */,
+			);
 			productName = UpbitTrading;
 			productReference = 819028D22C9C495B00AB6732 /* UpbitTrading.app */;
 			productType = "com.apple.product-type.application";
@@ -138,6 +154,9 @@
 				Base,
 			);
 			mainGroup = 819028C92C9C495B00AB6732;
+			packageReferences = (
+				819029112C9D2F1900AB6732 /* XCRemoteSwiftPackageReference "mysql-kit" */,
+			);
 			productRefGroup = 819028D32C9C495B00AB6732 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -165,9 +184,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				819029192C9D4D5300AB6732 /* DatabaseManager.swift in Sources */,
+				8190291C2C9D4E8100AB6732 /* UpbitAPI.swift in Sources */,
 				819028D82C9C495B00AB6732 /* LoginPage.swift in Sources */,
 				819028ED2C9CFB7800AB6732 /* ContentView.swift in Sources */,
-				819028EF2C9CFF3100AB6732 /* FetchStocksView.swift in Sources */,
 				819028D62C9C495B00AB6732 /* UpbitTradingApp.swift in Sources */,
 				819028E92C9CFA9D00AB6732 /* KeyManager.swift in Sources */,
 				819028EB2C9CFB2700AB6732 /* MainPage.swift in Sources */,
@@ -373,6 +393,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		819029112C9D2F1900AB6732 /* XCRemoteSwiftPackageReference "mysql-kit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/vapor/mysql-kit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		819029122C9D2F1900AB6732 /* MySQLKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 819029112C9D2F1900AB6732 /* XCRemoteSwiftPackageReference "mysql-kit" */;
+			productName = MySQLKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 819028CA2C9C495B00AB6732 /* Project object */;
 }
