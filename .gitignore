@@ -1,0 +1,3 @@
+
+# Ignore the Info.plist file if it contains sensitive data
+Info.plist
