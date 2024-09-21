@@ -61,6 +61,26 @@ struct UpbitError: Codable {
     let name: String
 }
 
+struct MarketPrice: Codable {
+    let marketId: String
+    let openingPrice: Double
+    let highPrice: Double
+    let lowPrice: Double
+    let tradePrice: Double
+    let timestamp: Date
+    let candleAccTradeVolume: Double
+
+    enum CodingKeys: String, CodingKey {
+        case marketId = "market"
+        case openingPrice = "opening_price"
+        case highPrice = "high_price"
+        case lowPrice = "low_price"
+        case tradePrice = "trade_price"
+        case timestamp = "candle_date_time_kst"
+        case candleAccTradeVolume = "candle_acc_trade_volume"
+    }
+}
+
 class UpbitAPI {
     static let shared = UpbitAPI()
     private init() {}
@@ -135,13 +155,113 @@ class UpbitAPI {
             }
         }.resume()
     }
+    
+    func fetchPrices(for marketId: String) async throws -> [MarketPrice] {
+        guard let url = URL(string: "https://api.upbit.com/v1/candles/days?market=\(marketId)&count=365") else {
+            throw NSError(domain: "Invalid URL", code: 0, userInfo: nil)
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        guard let accessKey = KeyManager.shared.getAccessKey(),
+              let secretKey = KeyManager.shared.getSecretKey() else {
+            throw NSError(domain: "API Keys not found", code: 0, userInfo: nil)
+        }
+        
+        let nonce = UUID().uuidString
+        let timestamp = "\(Int64(Date().timeIntervalSince1970 * 1000))"
+        let payload = "\(timestamp)\(nonce)\(request.httpMethod!)\(request.url!.path)"
+        
+        guard let secretKeyData = secretKey.data(using: .utf8),
+              let payloadData = payload.data(using: .utf8) else {
+            throw NSError(domain: "Encoding error", code: 0, userInfo: nil)
+        }
+        
+        let signature = HMAC<SHA256>.authenticationCode(for: payloadData, using: SymmetricKey(data: secretKeyData))
+        let signatureString = Data(signature).base64EncodedString()
+        
+        // Create JWT token
+        let jwtHeader = ["alg": "HS256", "typ": "JWT"].jsonString?.base64URLEncoded ?? ""
+        let jwtPayload = ["access_key": accessKey, "nonce": nonce, "timestamp": timestamp].jsonString?.base64URLEncoded ?? ""
+        let jwtSignature = Data(HMAC<SHA256>.authenticationCode(for: Data("\(jwtHeader).\(jwtPayload)".utf8), using: SymmetricKey(data: secretKeyData))).base64URLEncodedString()
+        
+        let jwt = "\(jwtHeader).\(jwtPayload).\(jwtSignature)"
+        
+        request.addValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "Invalid response", code: 0, userInfo: nil)
+        }
+        
+        if httpResponse.statusCode != 200 {
+            // Too Many Requests 에러 처리
+            throw NSError(domain: "Rate limit exceeded", code: 429, userInfo: nil)
+        }
+        
+        if httpResponse.statusCode != 200 {
+            if let errorResponse = try? JSONDecoder().decode(UpbitErrorResponse.self, from: data) {
+                throw NSError(domain: "Upbit API Error", code: httpResponse.statusCode, userInfo: ["errorName": errorResponse.error.name])
+            } else {
+                throw NSError(domain: "HTTP Error", code: httpResponse.statusCode, userInfo: nil)
+            }
+        }
+        
+        do {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let dateString = try container.decode(String.self)
+                let formatters: [DateFormatter] = [
+                    {
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+                        formatter.timeZone = TimeZone(identifier: "KST")
+                        return formatter
+                    }(),
+                    {
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
+                        return formatter
+                    }()
+                ]
+                
+                for formatter in formatters {
+                    if let date = formatter.date(from: dateString) {
+                        return date
+                    }
+                }
+                
+                // ISO8601DateFormatter 별도 처리
+                let iso8601Formatter = ISO8601DateFormatter()
+                if let date = iso8601Formatter.date(from: dateString) {
+                    return date
+                }
+                
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date format: \(dateString)")
+            }
+            
+            let marketPrices = try decoder.decode([MarketPrice].self, from: data)
+            return marketPrices
+        } catch {
+            print("Decoding error for \(marketId): \(error)")
+            // 디버깅을 위해 원본 데이터 출력
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Raw JSON for \(marketId): \(jsonString)")
+            }
+            throw error
+        }
+    }
 }
 
 class MarketStore: ObservableObject {
     @Published var markets: [Market] = []
-    @Published var selectedMarket: Market?
     @Published var status: String = ""
+    @Published var progress: Float = 0.0
     
+    // 종목 불러오기
     func fetchMarkets() {
         status = "마켓 정보 가져오는 중..."
         UpbitAPI.shared.fetchMarkets { [weak self] result in
@@ -172,12 +292,60 @@ class MarketStore: ObservableObject {
             }
         }
     }
+    
+    // 가격 불러오기
+    func fetchAllPrices() {
+        let krwMarkets = markets.filter { $0.id.hasPrefix("KRW-") }
+        guard !krwMarkets.isEmpty else {
+            status = "KRW 마켓이 없습니다. 먼저 마켓 정보를 가져와주세요."
+            return
+        }
+        
+        status = "모든 KRW 마켓의 가격 정보를 가져오는 중..."
+        progress = 0.0
+        
+        Task {
+            for (index, market) in krwMarkets.enumerated() {
+                do {
+                    try await fetchAndSavePrices(for: market)
+                } catch {
+                    print("Error processing \(market.id): \(error.localizedDescription)")
+                }
+                await MainActor.run {
+                    progress = Float(index + 1) / Float(krwMarkets.count)
+                    status = "\(market.koreanName) 처리 완료 (\(index + 1)/\(krwMarkets.count))"
+                }
+                
+                // API 호출 사이에 지연 추가
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5초 대기
+            }
+            await MainActor.run {
+                status = "모든 KRW 마켓의 가격 정보 처리 완료"
+                progress = 1.0
+            }
+        }
+    }
+    
+    private func fetchAndSavePrices(for market: Market) async throws {
+        do {
+            let prices = try await UpbitAPI.shared.fetchPrices(for: market.id)
+            print("Fetched \(prices.count) prices for \(market.id)")
+            let formattedPrices = prices.map { price in
+                (price.marketId, price.openingPrice, price.highPrice, price.lowPrice, price.tradePrice, price.timestamp, price.candleAccTradeVolume)
+            }
+            try await DatabaseManager.shared.insertMarketPrices(formattedPrices)
+            print("Saved prices for \(market.id)")
+        } catch {
+            print("Error processing \(market.id): \(error)")
+            throw error
+        }
+    }
 }
 
 struct FetchStocksView: View {
     @StateObject private var marketStore = MarketStore()
     @State private var searchText = ""
-    
+
     var filteredMarkets: [Market] {
         if searchText.isEmpty {
             return marketStore.markets
@@ -196,10 +364,14 @@ struct FetchStocksView: View {
                 Text(marketStore.status)
                     .padding()
                 
-                List(filteredMarkets, selection: $marketStore.selectedMarket) { market in
+                if marketStore.progress > 0 {
+                    ProgressView(value: marketStore.progress)
+                        .padding()
+                }
+
+                List(filteredMarkets) { market in
                     MarketRow(market: market)
                 }
-                .listStyle(PlainListStyle())
             }
             .frame(minWidth: 250)
             .navigationTitle("Upbit 마켓")
@@ -208,6 +380,12 @@ struct FetchStocksView: View {
                     Button("마켓 정보 가져오기") {
                         marketStore.fetchMarkets()
                     }
+                }
+                ToolbarItem(placement: .automatic) {
+                    Button("전체 종목 가격 가져오기") {
+                        marketStore.fetchAllPrices()
+                    }
+                    .disabled(marketStore.markets.isEmpty)
                 }
             }
             .background(Color(NSColor.windowBackgroundColor))

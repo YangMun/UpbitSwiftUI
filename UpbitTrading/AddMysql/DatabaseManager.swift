@@ -6,15 +6,7 @@ import Logging
 class DatabaseManager {
     static let shared = DatabaseManager()
     private init() {}
-    
-    func insertOrUpdateMarkets(_ markets: [Market]) async throws {
-        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        defer {
-            try? eventLoopGroup.syncShutdownGracefully()
-        }
-        
-        let logger = Logger(label: "mysql")
-        
+    private func setupDatabaseConnection(eventLoopGroup: EventLoopGroup) async throws -> MySQLConnection {
         // Info.plist에서 데이터베이스 설정 정보 가져오기
         guard let infoDict = Bundle.main.infoDictionary,
               let hostname = infoDict["DatabaseHost"] as? String,
@@ -22,7 +14,7 @@ class DatabaseManager {
               let username = infoDict["DatabaseUsername"] as? String,
               let password = infoDict["DatabasePassword"] as? String,
               let database = infoDict["DatabaseName"] as? String else {
-            fatalError("Database configuration is missing in Info.plist")
+            throw NSError(domain: "DatabaseError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Database configuration is missing in Info.plist"])
         }
         
         let mysqlConfiguration = MySQLConfiguration(
@@ -35,19 +27,27 @@ class DatabaseManager {
         )
         
         let address = try await mysqlConfiguration.address()
-        let conn = try await MySQLConnection.connect(
+        return try await MySQLConnection.connect(
             to: address,
             username: mysqlConfiguration.username,
             database: mysqlConfiguration.database!,
             password: mysqlConfiguration.password,
             tlsConfiguration: mysqlConfiguration.tlsConfiguration,
-            logger: logger,
+            logger: Logger(label: "mysql"),
             on: eventLoopGroup.next()
         ).get()
-        
+    }
+    
+    
+    
+    func insertOrUpdateMarkets(_ markets: [Market]) async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         defer {
-            try? conn.close().wait()
+            try? eventLoopGroup.syncShutdownGracefully()
         }
+        
+        let conn = try await setupDatabaseConnection(eventLoopGroup: eventLoopGroup)
+        defer { try? conn.close().wait() }
         
         // Step 1: 데이터베이스에서 현재 존재하는 market_id를 가져오기
         let existingMarketsQuery = "SELECT market_id FROM markets"
@@ -84,6 +84,56 @@ class DatabaseManager {
                 MySQLData(string: market.id),
                 MySQLData(string: market.koreanName)
             ]).get()
+        }
+    }
+    
+    func insertMarketPrices(_ prices: [(String, Double, Double, Double, Double, Date, Double)]) async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer {
+            try? eventLoopGroup.syncShutdownGracefully()
+        }
+        
+        let conn = try await setupDatabaseConnection(eventLoopGroup: eventLoopGroup)
+        defer { try? conn.close().wait() }
+        
+        let query = """
+        INSERT INTO market_prices (market_id, opening_price, high_price, low_price, trade_price, timestamp, candle_acc_trade_volume)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """
+        
+        print("Attempting to insert \(prices.count) records into market_prices table")
+        
+        do {
+            // 트랜잭션 시작
+            _ = try await conn.simpleQuery("START TRANSACTION").get()
+            
+            for (marketId, openingPrice, highPrice, lowPrice, tradePrice, timestamp, volume) in prices {
+                do {
+                    _ = try await conn.query(query, [
+                        MySQLData(string: marketId),
+                        MySQLData(double: openingPrice),
+                        MySQLData(double: highPrice),
+                        MySQLData(double: lowPrice),
+                        MySQLData(double: tradePrice),
+                        MySQLData(date: timestamp),
+                        MySQLData(double: volume)
+                    ]).get()
+                } catch {
+                    print("Error inserting data for \(marketId): \(error)")
+                    // 롤백
+                    _ = try await conn.simpleQuery("ROLLBACK").get()
+                    throw error
+                }
+            }
+            
+            // 커밋
+            _ = try await conn.simpleQuery("COMMIT").get()
+            print("Successfully inserted \(prices.count) records into market_prices table")
+        } catch {
+            print("Transaction failed: \(error)")
+            // 롤백
+            try? await conn.simpleQuery("ROLLBACK").get()
+            throw error
         }
     }
 }
