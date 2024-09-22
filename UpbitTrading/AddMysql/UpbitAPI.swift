@@ -157,59 +157,63 @@ class UpbitAPI {
     }
     
     func fetchPrices(for marketId: String) async throws -> [MarketPrice] {
-        guard let url = URL(string: "https://api.upbit.com/v1/candles/days?market=\(marketId)&count=365") else {
-            throw NSError(domain: "Invalid URL", code: 0, userInfo: nil)
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        
-        guard let accessKey = KeyManager.shared.getAccessKey(),
-              let secretKey = KeyManager.shared.getSecretKey() else {
-            throw NSError(domain: "API Keys not found", code: 0, userInfo: nil)
-        }
-        
-        let nonce = UUID().uuidString
-        let timestamp = "\(Int64(Date().timeIntervalSince1970 * 1000))"
-        let payload = "\(timestamp)\(nonce)\(request.httpMethod!)\(request.url!.path)"
-        
-        guard let secretKeyData = secretKey.data(using: .utf8),
-              let payloadData = payload.data(using: .utf8) else {
-            throw NSError(domain: "Encoding error", code: 0, userInfo: nil)
-        }
-        
-        let signature = HMAC<SHA256>.authenticationCode(for: payloadData, using: SymmetricKey(data: secretKeyData))
-        let signatureString = Data(signature).base64EncodedString()
-        
-        // Create JWT token
-        let jwtHeader = ["alg": "HS256", "typ": "JWT"].jsonString?.base64URLEncoded ?? ""
-        let jwtPayload = ["access_key": accessKey, "nonce": nonce, "timestamp": timestamp].jsonString?.base64URLEncoded ?? ""
-        let jwtSignature = Data(HMAC<SHA256>.authenticationCode(for: Data("\(jwtHeader).\(jwtPayload)".utf8), using: SymmetricKey(data: secretKeyData))).base64URLEncodedString()
-        
-        let jwt = "\(jwtHeader).\(jwtPayload).\(jwtSignature)"
-        
-        request.addValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "Invalid response", code: 0, userInfo: nil)
-        }
-        
-        if httpResponse.statusCode != 200 {
-            // Too Many Requests 에러 처리
-            throw NSError(domain: "Rate limit exceeded", code: 429, userInfo: nil)
-        }
-        
-        if httpResponse.statusCode != 200 {
-            if let errorResponse = try? JSONDecoder().decode(UpbitErrorResponse.self, from: data) {
-                throw NSError(domain: "Upbit API Error", code: httpResponse.statusCode, userInfo: ["errorName": errorResponse.error.name])
-            } else {
-                throw NSError(domain: "HTTP Error", code: httpResponse.statusCode, userInfo: nil)
+        var allPrices: [MarketPrice] = []
+        let calendar = Calendar.current
+        let endDate = Date()
+        let startDate = calendar.date(byAdding: .year, value: -1, to: endDate)!
+        var currentDate = endDate
+
+        while currentDate >= startDate {
+            let url = URL(string: "https://api.upbit.com/v1/candles/days?market=\(marketId)&count=200&to=\(formatDate(currentDate))")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+
+            guard let accessKey = KeyManager.shared.getAccessKey(),
+                  let secretKey = KeyManager.shared.getSecretKey() else {
+                throw NSError(domain: "API Keys not found", code: 0, userInfo: nil)
             }
-        }
-        
-        do {
+
+            let nonce = UUID().uuidString
+            let timestamp = "\(Int64(Date().timeIntervalSince1970 * 1000))"
+            let payload = "\(timestamp)\(nonce)\(request.httpMethod!)\(request.url!.path)"
+
+            guard let secretKeyData = secretKey.data(using: .utf8),
+                  let payloadData = payload.data(using: .utf8) else {
+                throw NSError(domain: "Encoding error", code: 0, userInfo: nil)
+            }
+
+            let signature = HMAC<SHA256>.authenticationCode(for: payloadData, using: SymmetricKey(data: secretKeyData))
+            let signatureString = Data(signature).base64EncodedString()
+
+            // Create JWT token
+            let jwtHeader = ["alg": "HS256", "typ": "JWT"].jsonString?.base64URLEncoded ?? ""
+            let jwtPayload = ["access_key": accessKey, "nonce": nonce, "timestamp": timestamp].jsonString?.base64URLEncoded ?? ""
+            let jwtSignature = Data(HMAC<SHA256>.authenticationCode(for: Data("\(jwtHeader).\(jwtPayload)".utf8), using: SymmetricKey(data: secretKeyData))).base64URLEncodedString()
+
+            let jwt = "\(jwtHeader).\(jwtPayload).\(jwtSignature)"
+
+            request.addValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NSError(domain: "Invalid response", code: 0, userInfo: nil)
+            }
+
+            if httpResponse.statusCode == 429 {
+                // Rate limit 처리: 1분 대기 후 재시도
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+                continue
+            }
+
+            if httpResponse.statusCode != 200 {
+                if let errorResponse = try? JSONDecoder().decode(UpbitErrorResponse.self, from: data) {
+                    throw NSError(domain: "Upbit API Error", code: httpResponse.statusCode, userInfo: ["errorName": errorResponse.error.name])
+                } else {
+                    throw NSError(domain: "HTTP Error", code: httpResponse.statusCode, userInfo: nil)
+                }
+            }
+
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .custom { decoder in
                 let container = try decoder.singleValueContainer()
@@ -242,17 +246,28 @@ class UpbitAPI {
                 
                 throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date format: \(dateString)")
             }
-            
-            let marketPrices = try decoder.decode([MarketPrice].self, from: data)
-            return marketPrices
-        } catch {
-            print("Decoding error for \(marketId): \(error)")
-            // 디버깅을 위해 원본 데이터 출력
-            if let jsonString = String(data: data, encoding: .utf8) {
-                print("Raw JSON for \(marketId): \(jsonString)")
+
+            let prices = try decoder.decode([MarketPrice].self, from: data)
+            allPrices.append(contentsOf: prices)
+
+            if let oldestDate = prices.last?.timestamp {
+                currentDate = calendar.date(byAdding: .day, value: -1, to: oldestDate)!
+            } else {
+                break
             }
-            throw error
+
+            // API 호출 사이에 지연 추가
+            try await Task.sleep(nanoseconds: 500_000_000) // 0.5초 대기
         }
+
+        return allPrices
+    }
+
+    // 날짜를 문자열로 포맷하는 헬퍼 함수
+    private func formatDate(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
+        return formatter.string(from: date)
     }
 }
 
