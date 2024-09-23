@@ -136,4 +136,43 @@ class DatabaseManager {
             throw error
         }
     }
+    
+    func fetchMarketPrices(for marketId: String) async throws -> [MarketPrice] {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer {
+            try? eventLoopGroup.syncShutdownGracefully()
+        }
+        
+        let conn = try await setupDatabaseConnection(eventLoopGroup: eventLoopGroup)
+        defer { try? conn.close().wait() }
+        
+        let query = """
+        SELECT DISTINCT DATE(timestamp) as date,
+               FIRST_VALUE(market_id) OVER (PARTITION BY DATE(timestamp) ORDER BY timestamp DESC) as market_id,
+               FIRST_VALUE(opening_price) OVER (PARTITION BY DATE(timestamp) ORDER BY timestamp DESC) as opening_price,
+               FIRST_VALUE(high_price) OVER (PARTITION BY DATE(timestamp) ORDER BY timestamp DESC) as high_price,
+               FIRST_VALUE(low_price) OVER (PARTITION BY DATE(timestamp) ORDER BY timestamp DESC) as low_price,
+               FIRST_VALUE(trade_price) OVER (PARTITION BY DATE(timestamp) ORDER BY timestamp DESC) as trade_price,
+               FIRST_VALUE(timestamp) OVER (PARTITION BY DATE(timestamp) ORDER BY timestamp DESC) as timestamp,
+               FIRST_VALUE(candle_acc_trade_volume) OVER (PARTITION BY DATE(timestamp) ORDER BY timestamp DESC) as candle_acc_trade_volume
+        FROM market_prices
+        WHERE market_id = ?
+          AND timestamp >= DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        ORDER BY date DESC
+        """
+        
+        let rows = try await conn.query(query, [MySQLData(string: marketId)]).get()
+        
+        return try rows.map { row in
+            MarketPrice(
+                marketId: row.column("market_id")?.string ?? "",
+                openingPrice: row.column("opening_price")?.double ?? 0,
+                highPrice: row.column("high_price")?.double ?? 0,
+                lowPrice: row.column("low_price")?.double ?? 0,
+                tradePrice: row.column("trade_price")?.double ?? 0,
+                timestamp: row.column("timestamp")?.date ?? Date(),
+                candleAccTradeVolume: row.column("candle_acc_trade_volume")?.double ?? 0
+            )
+        }
+    }
 }
