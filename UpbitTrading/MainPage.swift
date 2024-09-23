@@ -41,16 +41,6 @@ struct MainPage: View {
     }
 }
 
-struct DashboardView: View {
-    var body: some View {
-        VStack {
-            Text("Dashboard")
-                .font(.largeTitle)
-            // Add your dashboard content here
-        }
-    }
-}
-
 struct TradeView: View {
     var body: some View {
         VStack {

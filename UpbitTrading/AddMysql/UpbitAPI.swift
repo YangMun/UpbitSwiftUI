@@ -63,6 +63,7 @@ struct UpbitError: Codable {
 
 struct MarketPrice: Codable {
     let marketId: String
+    var koreanName: String
     let openingPrice: Double
     let highPrice: Double
     let lowPrice: Double
@@ -72,12 +73,35 @@ struct MarketPrice: Codable {
 
     enum CodingKeys: String, CodingKey {
         case marketId = "market"
+        case koreanName = "korean_name"
         case openingPrice = "opening_price"
         case highPrice = "high_price"
         case lowPrice = "low_price"
         case tradePrice = "trade_price"
         case timestamp = "candle_date_time_kst"
         case candleAccTradeVolume = "candle_acc_trade_volume"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        marketId = try container.decode(String.self, forKey: .marketId)
+        koreanName = try container.decode(String.self, forKey: .koreanName)
+        openingPrice = try container.decode(Double.self, forKey: .openingPrice)
+        highPrice = try container.decode(Double.self, forKey: .highPrice)
+        lowPrice = try container.decode(Double.self, forKey: .lowPrice)
+        tradePrice = try container.decode(Double.self, forKey: .tradePrice)
+        
+        let dateString = try container.decode(String.self, forKey: .timestamp)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        dateFormatter.timeZone = TimeZone(identifier: "Asia/Seoul")
+        if let date = dateFormatter.date(from: dateString) {
+            timestamp = date
+        } else {
+            throw DecodingError.dataCorruptedError(forKey: .timestamp, in: container, debugDescription: "Date string does not match format")
+        }
+        
+        candleAccTradeVolume = try container.decode(Double.self, forKey: .candleAccTradeVolume)
     }
 }
 
@@ -156,16 +180,14 @@ class UpbitAPI {
         }.resume()
     }
     
-    func fetchPrices(for marketId: String) async throws -> [MarketPrice] {
+    func fetchPrices(for market: Market) async throws -> [MarketPrice] {
         let calendar = Calendar.current
         let endDate = Date()
         let startDate = calendar.date(byAdding: .year, value: -1, to: endDate)!
         
-        let url = URL(string: "https://api.upbit.com/v1/candles/days?market=\(marketId)&count=365&to=\(formatDate(endDate))")!
+        let url = URL(string: "https://api.upbit.com/v1/candles/days?market=\(market.id)&count=365&to=\(formatDate(endDate))")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-
-        // ... (이전 코드와 동일한 인증 로직)
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -196,16 +218,23 @@ class UpbitAPI {
 
         var prices = try decoder.decode([MarketPrice].self, from: data)
         
+        // koreanName 추가
+        prices = prices.map { price in
+            var updatedPrice = price
+            updatedPrice.koreanName = market.koreanName
+            return updatedPrice
+        }
+        
         // 1년 이내의 데이터만 필터링
         prices = prices.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }
         
         // 데이터베이스에 저장
         let formattedPrices = prices.map { price in
-            (price.marketId, price.openingPrice, price.highPrice, price.lowPrice, price.tradePrice, price.timestamp, price.candleAccTradeVolume)
+            (price.marketId, price.koreanName, price.openingPrice, price.highPrice, price.lowPrice, price.tradePrice, price.timestamp, price.candleAccTradeVolume)
         }
         try await DatabaseManager.shared.insertMarketPrices(formattedPrices)
         
-        print("Fetched and saved \(prices.count) prices for \(marketId)")
+        print("Fetched and saved \(prices.count) prices for \(market.id)")
         
         return prices
     }
@@ -291,7 +320,7 @@ class MarketStore: ObservableObject {
     
     private func fetchAndSavePrices(for market: Market) async throws {
         do {
-            let prices = try await UpbitAPI.shared.fetchPrices(for: market.id)
+            let prices = try await UpbitAPI.shared.fetchPrices(for: market)
             print("Fetched and saved \(prices.count) prices for \(market.id)")
         } catch {
             print("Error processing \(market.id): \(error)")
