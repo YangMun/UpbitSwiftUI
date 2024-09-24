@@ -63,6 +63,21 @@ struct UpbitError: Codable {
     let message: String
 }
 
+struct Account: Codable {
+    let currency: String
+    let balance: Double
+    let locked: Double
+    let avgBuyPrice: Double
+    let avgBuyPriceModified: Bool
+    let unitCurrency: String
+}
+
+enum APIError: Error {
+    case invalidResponse
+    case noData
+    case invalidKey
+}
+
 struct MarketPrice: Codable {
     let marketId: String
     var koreanName: String
@@ -109,6 +124,16 @@ struct MarketPrice: Codable {
 class UpbitAPI {
     static let shared = UpbitAPI()
     private init() {}
+    
+    private let baseURL = "https://api.upbit.com/v1"
+    private var accessKey: String {
+        // Info.plist에서 API 키 가져오기
+        return Bundle.main.infoDictionary?["UpbitAccessKey"] as? String ?? ""
+    }
+    private var secretKey: String {
+        // Info.plist에서 시크릿 키 가져오기
+        return Bundle.main.infoDictionary?["UpbitSecretKey"] as? String ?? ""
+    }
     
     func fetchMarkets(completion: @escaping (Result<[Market], Error>) -> Void) {
         guard let url = URL(string: "https://api.upbit.com/v1/market/all") else {
@@ -257,6 +282,100 @@ class UpbitAPI {
         print("Fetched and saved \(allPrices.count) new prices for \(market.id)")
         
         return allPrices
+    }
+    
+    func placeOrder(order: UpbitOrder) async throws -> OrderResult {
+        let endpoint = "\(baseURL)/orders"
+        var request = URLRequest(url: URL(string: endpoint)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // 요청 바디 생성
+        let jsonData = try JSONEncoder().encode(order)
+        request.httpBody = jsonData
+        
+        // JWT 토큰 생성 및 설정
+        let token = try generateJWT(params: order)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, 200...299 ~= httpResponse.statusCode else {
+            throw APIError.invalidResponse
+        }
+        
+        let orderResult = try JSONDecoder().decode(OrderResult.self, from: data)
+        return orderResult
+    }
+    
+    func fetchTicker(market: String) async throws -> UpbitTicker {
+        let endpoint = "\(baseURL)/ticker?markets=\(market)"
+        var request = URLRequest(url: URL(string: endpoint)!)
+        request.httpMethod = "GET"
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, 200...299 ~= httpResponse.statusCode else {
+            throw APIError.invalidResponse
+        }
+        
+        let tickers = try JSONDecoder().decode([UpbitTicker].self, from: data)
+        guard let ticker = tickers.first else {
+            throw APIError.noData
+        }
+        
+        return ticker
+    }
+    
+    func fetchAccounts() async throws -> [Account] {
+        let endpoint = "\(baseURL)/accounts"
+        var request = URLRequest(url: URL(string: endpoint)!)
+        request.httpMethod = "GET"
+        
+        // JWT 토큰 생성 및 설정
+        let token = try generateJWT(params: nil)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, 200...299 ~= httpResponse.statusCode else {
+            throw APIError.invalidResponse
+        }
+        
+        let accounts = try JSONDecoder().decode([Account].self, from: data)
+        return accounts
+    }
+    
+    private func generateJWT(params: Encodable?) throws -> String {
+        let header = ["alg": "HS256", "typ": "JWT"]
+        let headerData = try JSONEncoder().encode(header)
+        let headerBase64 = headerData.base64EncodedString().replacingOccurrences(of: "=", with: "")
+        
+        var payload: [String: Any] = [
+            "access_key": accessKey,
+            "nonce": UUID().uuidString
+        ]
+        
+        if let params = params {
+            let jsonData = try JSONEncoder().encode(params)
+            if let jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any] {
+                payload["query"] = jsonObject
+            }
+        }
+        
+        let payloadData = try JSONSerialization.data(withJSONObject: payload)
+        let payloadBase64 = payloadData.base64EncodedString().replacingOccurrences(of: "=", with: "")
+        
+        let toSign = "\(headerBase64).\(payloadBase64)"
+        
+        guard let secretKeyData = secretKey.data(using: .utf8) else {
+            throw APIError.invalidKey
+        }
+        
+        let signature = HMAC<SHA256>.authenticationCode(for: Data(toSign.utf8), using: SymmetricKey(data: secretKeyData))
+        let signatureBase64 = Data(signature).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        
+        return "\(toSign).\(signatureBase64)"
     }
 
     // 날짜를 문자열로 포맷하는 헬퍼 함수
