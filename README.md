@@ -4,7 +4,6 @@
   - Info.plist 파일
     - Upbit API : Access Key, Secret Key 저장
     - DatabaseHost, DatabasePort, DatabaseUsername, DatabasePassword, DatabaseName 저장
-    - 
    
 
 ### 1일차 (Day 1)
@@ -36,11 +35,14 @@
   - market_prices 테이블에 한글이름의 종목 컬럼 추가
   - `TradeView`생성
     - Trade On(Off)에 따라 매수 매도 진행 UI
-    - 로그 띄워줄 UI 
+    - 로그 띄워줄 UI
+    - 매수,매도 executeTrade() 함수 구현
 
 ## To-Do List
 - [X] 종목 Mysql에 저장
 - [X] 종목에 대한 값 
 - [ ] 개수에 대한 변동과 이미 업데이트 되었다면 마지막 업데이트 기준 "-" 하여 업데이트 하기
 - [X] market_prices 테이블에 한글 이름도 추가하기(Ex.비트코인)
-- [ ] 스캘핑 + RSI 기법을 통해 매수 매도 기능 구현
+- [X] 스캘핑 + RSI 기법을 통해 매수 매도 기능 구현
+- [X] 매수 매도 기능 구현
+- [ ] Turn Off 버튼 클릭 시 보유중인 종목 시장가로 매도
