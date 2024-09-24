@@ -73,7 +73,6 @@ struct MarketPrice: Codable {
 
     enum CodingKeys: String, CodingKey {
         case marketId = "market"
-        case koreanName = "korean_name"
         case openingPrice = "opening_price"
         case highPrice = "high_price"
         case lowPrice = "low_price"
@@ -85,7 +84,7 @@ struct MarketPrice: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         marketId = try container.decode(String.self, forKey: .marketId)
-        koreanName = try container.decode(String.self, forKey: .koreanName)
+        koreanName = "" // 초기화만 하고, 후에 설정
         openingPrice = try container.decode(Double.self, forKey: .openingPrice)
         highPrice = try container.decode(Double.self, forKey: .highPrice)
         lowPrice = try container.decode(Double.self, forKey: .lowPrice)
@@ -183,60 +182,79 @@ class UpbitAPI {
     func fetchPrices(for market: Market) async throws -> [MarketPrice] {
         let calendar = Calendar.current
         let endDate = Date()
-        let startDate = calendar.date(byAdding: .year, value: -1, to: endDate)!
+        let latestStoredDate = try await DatabaseManager.shared.getLatestTimestamp(for: market.id) ?? calendar.date(byAdding: .year, value: -1, to: endDate)!
+        let startDate = calendar.date(byAdding: .day, value: 1, to: latestStoredDate)!
         
-        let url = URL(string: "https://api.upbit.com/v1/candles/days?market=\(market.id)&count=365&to=\(formatDate(endDate))")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        var allPrices: [MarketPrice] = []
+        var currentDate = endDate
+        
+        while currentDate > startDate {
+            let url = URL(string: "https://api.upbit.com/v1/candles/days?market=\(market.id)&count=200&to=\(formatDate(currentDate))")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NSError(domain: "Invalid response", code: 0, userInfo: nil)
-        }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw NSError(domain: "Invalid response", code: 0, userInfo: nil)
+            }
 
-        if httpResponse.statusCode != 200 {
-            if let errorResponse = try? JSONDecoder().decode(UpbitErrorResponse.self, from: data) {
-                throw NSError(domain: "Upbit API Error", code: httpResponse.statusCode, userInfo: ["errorName": errorResponse.error.name])
+            if httpResponse.statusCode != 200 {
+                if let errorResponse = try? JSONDecoder().decode(UpbitErrorResponse.self, from: data) {
+                    throw NSError(domain: "Upbit API Error", code: httpResponse.statusCode, userInfo: ["errorName": errorResponse.error.name])
+                } else {
+                    throw NSError(domain: "HTTP Error", code: httpResponse.statusCode, userInfo: nil)
+                }
+            }
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let dateString = try container.decode(String.self)
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+                formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
+                if let date = formatter.date(from: dateString) {
+                    return date
+                }
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date format: \(dateString)")
+            }
+
+            var prices = try decoder.decode([MarketPrice].self, from: data)
+            
+            // korean_name 추가
+            prices = prices.map { price in
+                var updatedPrice = price
+                updatedPrice.koreanName = market.koreanName
+                return updatedPrice
+            }
+            
+            allPrices.append(contentsOf: prices)
+            
+            if let oldestDate = prices.last?.timestamp, oldestDate > startDate {
+                currentDate = calendar.date(byAdding: .day, value: -1, to: oldestDate) ?? currentDate
             } else {
-                throw NSError(domain: "HTTP Error", code: httpResponse.statusCode, userInfo: nil)
+                break
             }
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let dateString = try container.decode(String.self)
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
-            formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
-            if let date = formatter.date(from: dateString) {
-                return date
-            }
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date format: \(dateString)")
-        }
-
-        var prices = try decoder.decode([MarketPrice].self, from: data)
-        
-        // koreanName 추가
-        prices = prices.map { price in
-            var updatedPrice = price
-            updatedPrice.koreanName = market.koreanName
-            return updatedPrice
+            
+            // API 호출 간 지연 추가
+            try await Task.sleep(nanoseconds: 500_000_000) // 0.5초 대기
         }
         
-        // 1년 이내의 데이터만 필터링
-        prices = prices.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }
+        // startDate 이후의 데이터만 필터링
+        allPrices = allPrices.filter { $0.timestamp > startDate && $0.timestamp <= endDate }
         
         // 데이터베이스에 저장
-        let formattedPrices = prices.map { price in
-            (price.marketId, price.koreanName, price.openingPrice, price.highPrice, price.lowPrice, price.tradePrice, price.timestamp, price.candleAccTradeVolume)
+        if !allPrices.isEmpty {
+            let formattedPrices = allPrices.map { price in
+                (price.marketId, price.koreanName, price.openingPrice, price.highPrice, price.lowPrice, price.tradePrice, price.timestamp, price.candleAccTradeVolume)
+            }
+            try await DatabaseManager.shared.insertMarketPrices(formattedPrices)
         }
-        try await DatabaseManager.shared.insertMarketPrices(formattedPrices)
         
-        print("Fetched and saved \(prices.count) prices for \(market.id)")
+        print("Fetched and saved \(allPrices.count) new prices for \(market.id)")
         
-        return prices
+        return allPrices
     }
 
     // 날짜를 문자열로 포맷하는 헬퍼 함수

@@ -249,6 +249,21 @@ class DatabaseManager {
             return Market(id: marketId, koreanName: koreanName)
         }
     }
+    
+    func getLatestTimestamp(for marketId: String) async throws -> Date? {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer {
+            try? eventLoopGroup.syncShutdownGracefully()
+        }
+        
+        let conn = try await setupDatabaseConnection(eventLoopGroup: eventLoopGroup)
+        defer { try? conn.close().wait() }
+        
+        let query = "SELECT MAX(timestamp) as latest_timestamp FROM market_prices WHERE market_id = ?"
+        let rows = try await conn.query(query, [MySQLData(string: marketId)]).get()
+        
+        return rows.first?.column("latest_timestamp")?.date
+    }
 }
 
 extension DateFormatter {
