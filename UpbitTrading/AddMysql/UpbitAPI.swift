@@ -65,11 +65,18 @@ struct UpbitError: Codable {
 
 struct Account: Codable {
     let currency: String
-    let balance: Double
-    let locked: Double
-    let avgBuyPrice: Double
+    let balance: String
+    let locked: String
+    let avgBuyPrice: String
     let avgBuyPriceModified: Bool
     let unitCurrency: String
+
+    enum CodingKeys: String, CodingKey {
+        case currency, balance, locked
+        case avgBuyPrice = "avg_buy_price"
+        case avgBuyPriceModified = "avg_buy_price_modified"
+        case unitCurrency = "unit_currency"
+    }
 }
 
 enum APIError: Error {
@@ -342,8 +349,18 @@ class UpbitAPI {
             throw APIError.invalidResponse
         }
         
-        let accounts = try JSONDecoder().decode([Account].self, from: data)
-        return accounts
+        // 디버깅을 위해 원본 응답 출력
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("Raw API Response: \(jsonString)")
+        }
+        
+        do {
+            let accounts = try JSONDecoder().decode([Account].self, from: data)
+            return accounts
+        } catch {
+            print("Decoding error: \(error)")
+            throw error
+        }
     }
     
     private func generateJWT(params: Encodable?) throws -> String {

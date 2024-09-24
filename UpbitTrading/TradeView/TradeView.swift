@@ -247,7 +247,7 @@ class TradeManager: ObservableObject {
         guard let krwAccount = accounts.first(where: { $0.currency == "KRW" }) else {
             throw TradeError.insufficientBalance
         }
-        return krwAccount.balance
+        return Double(krwAccount.balance) ?? 0
     }
 
     private func fetchHolding(market: Market) async throws -> Double {
@@ -255,14 +255,59 @@ class TradeManager: ObservableObject {
         guard let account = accounts.first(where: { $0.currency == market.id.replacingOccurrences(of: "KRW-", with: "") }) else {
             return 0
         }
-        return account.balance
+        return Double(account.balance) ?? 0
     }
     
-    @MainActor 
-    private func sellAllHoldings() {
-          // 실제 모든 보유 종목 매도 로직을 여기에 구현합니다.
-          latestLog = "모든 보유 종목 매도 실행"
-      }
+    @MainActor
+    private func sellAllHoldings() async {
+        do {
+            let accounts = try await UpbitAPI.shared.fetchAccounts()
+            let nonKRWAccounts = accounts.filter { account in
+                account.currency != "KRW" &&
+                account.currency != "VTHO" && // VTHO 제외
+                (Double(account.balance) ?? 0) > 0
+            }
+            
+            if nonKRWAccounts.isEmpty {
+                self.latestLog = "매도 가능한 보유 종목이 없습니다"
+                return
+            }
+            
+            for account in nonKRWAccounts {
+                let market = "KRW-\(account.currency)"
+                let order = UpbitOrder(
+                    market: market,
+                    side: "ask",
+                    volume: account.balance,
+                    price: nil,  // 시장가 주문이므로 가격을 지정하지 않습니다.
+                    ordType: "market"
+                )
+                
+                do {
+                    let result = try await UpbitAPI.shared.placeOrder(order: order)
+                    self.latestLog = "매도 주문 실행: \(market) - 주문번호: \(result.uuid), 수량: \(account.balance)"
+                } catch {
+                    self.latestLog = "매도 주문 실패: \(market) - 오류: \(error.localizedDescription)"
+                }
+                
+                // API 호출 사이에 잠시 대기
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5초 대기
+            }
+            
+            if !nonKRWAccounts.isEmpty {
+                self.latestLog = "매도 가능한 모든 보유 종목 매도 완료"
+            }
+
+            // VTHO 보유 여부 확인 및 로그 추가
+            if let vthoAccount = accounts.first(where: { $0.currency == "VTHO" }),
+               (Double(vthoAccount.balance) ?? 0) > 0 {
+                self.latestLog += "\nVTHO는 상장폐지되어 매도하지 않았습니다. 보유 수량: \(vthoAccount.balance)"
+            }
+        } catch {
+            self.latestLog = "보유 종목 조회 실패: \(error.localizedDescription)"
+            print("보유 종목 조회 실패: \(error.localizedDescription)")
+        }
+    }
 }
 
 enum TradingSignal {
@@ -274,7 +319,7 @@ struct UpbitOrder: Codable {
     let market: String
     let side: String
     let volume: String
-    let price: String
+    let price: String?
     let ordType: String
 }
 
