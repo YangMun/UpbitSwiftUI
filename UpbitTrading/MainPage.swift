@@ -14,7 +14,7 @@ struct MainPage: View {
                         }
                         .tag(0)
                     
-                    TradeView()
+                    TradeTabView()
                         .tabItem {
                             Image(systemName: "arrow.left.arrow.right")
                             Text("Trade")
@@ -37,16 +37,6 @@ struct MainPage: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-    }
-}
-
-struct TradeView: View {
-    var body: some View {
-        VStack {
-            Text("Trade")
-                .font(.largeTitle)
-            // Add your trading interface here
         }
     }
 }

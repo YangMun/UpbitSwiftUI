@@ -30,8 +30,8 @@
             filePath = "UpbitTrading/AddMysql/UpbitAPI.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "485"
-            endingLineNumber = "485"
+            startingLineNumber = "487"
+            endingLineNumber = "487"
             landmarkName = "MarketRow"
             landmarkType = "14">
          </BreakpointContent>

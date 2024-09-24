@@ -35,6 +35,7 @@ struct RefreshButton: View {
     }
 }
 
+
 struct Market: Codable, Identifiable, Hashable {
     let id: String
     let koreanName: String
@@ -59,6 +60,7 @@ struct UpbitErrorResponse: Codable {
 
 struct UpbitError: Codable {
     let name: String
+    let message: String
 }
 
 struct MarketPrice: Codable {

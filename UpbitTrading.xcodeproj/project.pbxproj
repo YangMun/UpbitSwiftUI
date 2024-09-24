@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		817C14472CA13D1D001CD322 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817C14462CA13D1D001CD322 /* DashboardView.swift */; };
+		817C144E2CA27B62001CD322 /* TradeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817C144D2CA27B62001CD322 /* TradeView.swift */; };
 		819028D62C9C495B00AB6732 /* UpbitTradingApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819028D52C9C495B00AB6732 /* UpbitTradingApp.swift */; };
 		819028D82C9C495B00AB6732 /* LoginPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819028D72C9C495B00AB6732 /* LoginPage.swift */; };
 		819028DA2C9C495C00AB6732 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 819028D92C9C495C00AB6732 /* Assets.xcassets */; };
@@ -23,6 +24,7 @@
 
 /* Begin PBXFileReference section */
 		817C14462CA13D1D001CD322 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		817C144D2CA27B62001CD322 /* TradeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradeView.swift; sourceTree = "<group>"; };
 		819028D22C9C495B00AB6732 /* UpbitTrading.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UpbitTrading.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		819028D52C9C495B00AB6732 /* UpbitTradingApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpbitTradingApp.swift; sourceTree = "<group>"; };
 		819028D72C9C495B00AB6732 /* LoginPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginPage.swift; sourceTree = "<group>"; };
@@ -58,6 +60,14 @@
 			path = DashBoard;
 			sourceTree = "<group>";
 		};
+		817C14482CA25840001CD322 /* TradeView */ = {
+			isa = PBXGroup;
+			children = (
+				817C144D2CA27B62001CD322 /* TradeView.swift */,
+			);
+			path = TradeView;
+			sourceTree = "<group>";
+		};
 		819028C92C9C495B00AB6732 = {
 			isa = PBXGroup;
 			children = (
@@ -78,6 +88,7 @@
 		819028D42C9C495B00AB6732 /* UpbitTrading */ = {
 			isa = PBXGroup;
 			children = (
+				817C14482CA25840001CD322 /* TradeView */,
 				817C14452CA13D07001CD322 /* DashBoard */,
 				8190291A2C9D4E6800AB6732 /* AddMysql */,
 				819028E72C9CFA8F00AB6732 /* ClassFile */,
@@ -198,6 +209,7 @@
 				819029192C9D4D5300AB6732 /* DatabaseManager.swift in Sources */,
 				817C14472CA13D1D001CD322 /* DashboardView.swift in Sources */,
 				8190291C2C9D4E8100AB6732 /* UpbitAPI.swift in Sources */,
+				817C144E2CA27B62001CD322 /* TradeView.swift in Sources */,
 				819028D82C9C495B00AB6732 /* LoginPage.swift in Sources */,
 				819028ED2C9CFB7800AB6732 /* ContentView.swift in Sources */,
 				819028D62C9C495B00AB6732 /* UpbitTradingApp.swift in Sources */,
