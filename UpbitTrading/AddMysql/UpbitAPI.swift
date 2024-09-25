@@ -350,9 +350,9 @@ class UpbitAPI {
         }
         
         // 디버깅을 위해 원본 응답 출력
-        if let jsonString = String(data: data, encoding: .utf8) {
-            print("Raw API Response: \(jsonString)")
-        }
+//        if let jsonString = String(data: data, encoding: .utf8) {
+//            print("Raw API Response: \(jsonString)")
+//        }
         
         do {
             let accounts = try JSONDecoder().decode([Account].self, from: data)

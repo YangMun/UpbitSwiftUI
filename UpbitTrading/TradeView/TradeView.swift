@@ -4,6 +4,9 @@ import Combine
 struct TradeTabView: View {
     @StateObject private var tradeManager = TradeManager()
     @State private var logs: [String] = []
+    @State private var balance: Double = 0.0
+    
+    let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         HSplitView {
@@ -26,6 +29,9 @@ struct TradeTabView: View {
                 }
                 .padding()
                 
+                Text("현재 잔고: \(balance, specifier: "%.2f") KRW")
+                    .padding()
+                
                 Spacer()
             }
             .frame(minWidth: 150)
@@ -45,6 +51,16 @@ struct TradeTabView: View {
         .onReceive(tradeManager.$latestLog) { log in
             addLog(log)
         }
+        .onReceive(timer) { _ in
+            Task {
+                await updateBalance()
+            }
+        }
+        .onAppear {
+            Task {
+                await updateBalance()
+            }
+        }
     }
     
     @MainActor
@@ -52,48 +68,59 @@ struct TradeTabView: View {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .medium)
         logs.append("[\(timestamp)] \(message)")
     }
+    
+    private func updateBalance() async {
+        do {
+            let newBalance = try await tradeManager.fetchKRWBalance()
+            await MainActor.run {
+                self.balance = newBalance
+            }
+        } catch {
+            print("Error updating balance: \(error)")
+        }
+    }
 }
 
-import Foundation
-import Combine
-
 class TradeManager: ObservableObject {
-    @MainActor @Published var isTrading = false
-    @MainActor @Published var latestLog = ""
-    
-    private var tradingTask: Task<Void, Never>?
-    private var cancellables = Set<AnyCancellable>()
+     @MainActor @Published var isTrading = false
+     @MainActor @Published var latestLog = ""
+     
+     private var tradingTask: Task<Void, Never>?
+     private var cancellables = Set<AnyCancellable>()
+     
+     // Upbit 거래 수수료 (0.05%)
+     private let fee = 0.0005
+     
+     @MainActor
+     func toggleTrading() async {
+         isTrading.toggle()
+         if isTrading {
+             await startTrading()
+         } else {
+             await stopTrading()
+         }
+     }
     
     @MainActor
-    func toggleTrading() async {
-        isTrading.toggle()
-        if isTrading {
-            await startTrading()
-        } else {
-            await stopTrading()
-        }
-    }
-    
-    @MainActor
-    private func startTrading() async {
-        tradingTask = Task {
-            let startTime = Date()
-            let tradingDuration: TimeInterval = 6.5 * 60 * 60 // 6시간 30분
+     private func startTrading() async {
+         tradingTask = Task {
+             let startTime = Date()
+             let tradingDuration: TimeInterval = 6.5 * 60 * 60 // 6시간 30분
 
-            while await self.isTrading && Date().timeIntervalSince(startTime) < tradingDuration {
-                await performTradingCycle()
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1초 대기
-            }
+             while await self.isTrading && Date().timeIntervalSince(startTime) < tradingDuration {
+                 await performTradingCycle()
+                 try? await Task.sleep(nanoseconds: 30_000_000_000) // 30초 대기
+             }
 
-            if await self.isTrading {
-                await MainActor.run {
-                    self.isTrading = false
-                    self.latestLog = "6시간 30분 거래 기간이 종료되었습니다."
-                }
-                await sellAllHoldings()
-            }
-        }
-    }
+             if await self.isTrading {
+                 await MainActor.run {
+                     self.isTrading = false
+                     self.latestLog = "6시간 30분 거래 기간이 종료되었습니다."
+                 }
+                 await sellAllHoldings()
+             }
+         }
+     }
     
     @MainActor
     private func stopTrading() async {
@@ -118,30 +145,33 @@ class TradeManager: ObservableObject {
     }
     
     private func analyzePrices(_ prices: [MarketPrice]) -> TradingSignal? {
-        guard prices.count >= 20 else { return nil }  // 최소 20개의 데이터 포인트 필요
+        guard prices.count >= 10 else { return nil }  // 최소 10개의 데이터 포인트 필요
 
         let closePrices = prices.map { $0.tradePrice }
         let volumes = prices.map { $0.candleAccTradeVolume }
 
-        let ema9 = calculateEMA(prices: closePrices, period: 9)
-        let ema20 = calculateEMA(prices: closePrices, period: 20)
-        let rsi = calculateRSI(prices: closePrices, period: 14)
+        // 단기 EMA 사용 (5분)
+        let ema5 = calculateEMA(prices: closePrices, period: 5)
+        let ema10 = calculateEMA(prices: closePrices, period: 10)
+
+        // 단기 RSI 사용 (9분)
+        let rsi = calculateRSI(prices: closePrices, period: 9)
 
         let currentPrice = closePrices.last!
         let currentVolume = volumes.last!
         let averageVolume = volumes.suffix(5).reduce(0, +) / 5
 
         // 매수 신호
-        if currentPrice > ema9 && ema9 > ema20 &&  // 단기 상승 추세
+        if currentPrice > ema5 && ema5 > ema10 &&  // 단기 상승 추세
            rsi > 50 && rsi < 70 &&                 // RSI가 상승 구간이지만 과매수는 아님
-           currentVolume > averageVolume * 1.2 {   // 거래량 약간 증가
+           currentVolume > averageVolume * 1.5 {   // 거래량 증가
             return .buy
         }
 
         // 매도 신호
-        if currentPrice < ema9 && ema9 < ema20 &&  // 단기 하락 추세
-           rsi < 50 && rsi > 30 &&                 // RSI가 하락 구간이지만 과매도는 아님
-           currentVolume > averageVolume * 1.2 {   // 거래량 약간 증가
+        if currentPrice < ema5 && ema5 < ema10 &&  // 단기 하락 추세
+           (rsi < 30 || rsi > 70) &&               // RSI가 과매도 또는 과매수 구간
+           currentVolume > averageVolume * 1.5 {   // 거래량 증가
             return .sell
         }
 
@@ -191,14 +221,14 @@ class TradeManager: ObservableObject {
             case .buy:
                 // 매수 로직
                 let buyPrice = calculateBuyPrice(currentPrice: ticker.tradePrice)
-                let orderAmount = min(balance * 0.1, 100000)  // 최대 10만원으로 제한
-                let quantity = orderAmount / buyPrice
+                let orderAmount = balance * 0.99 //잔고의 99%를 사용 (1%는 수수료 및 기타 비용을 위해 예비)
+                let quantity = (orderAmount / buyPrice) * (1 - fee)  // 수수료를 고려한 수량 계산
                 
                 let buyOrder = UpbitOrder(market: market.id, side: "bid", volume: String(quantity), price: String(buyPrice), ordType: "limit")
                 let orderResult = try await UpbitAPI.shared.placeOrder(order: buyOrder)
                 
                 await MainActor.run {
-                    self.latestLog = "매수 주문 실행: \(market.koreanName) (\(market.id)) - 주문번호: \(orderResult.uuid), 가격: \(buyPrice)"
+                    self.latestLog = "매수 주문 실행: \(market.koreanName) (\(market.id)) - 주문번호: \(orderResult.uuid), 가격: \(buyPrice), 수량: \(quantity)"
                 }
                 
             case .sell:
@@ -207,11 +237,12 @@ class TradeManager: ObservableObject {
                 let holding = try await fetchHolding(market: market)
                 
                 if holding > 0 {
-                    let sellOrder = UpbitOrder(market: market.id, side: "ask", volume: String(holding), price: String(sellPrice), ordType: "limit")
+                    let sellQuantity = holding * (1 - fee)  // 수수료를 고려한 매도 수량
+                    let sellOrder = UpbitOrder(market: market.id, side: "ask", volume: String(sellQuantity), price: String(sellPrice), ordType: "limit")
                     let orderResult = try await UpbitAPI.shared.placeOrder(order: sellOrder)
                     
                     await MainActor.run {
-                        self.latestLog = "매도 주문 실행: \(market.koreanName) (\(market.id)) - 주문번호: \(orderResult.uuid), 가격: \(sellPrice)"
+                        self.latestLog = "매도 주문 실행: \(market.koreanName) (\(market.id)) - 주문번호: \(orderResult.uuid), 가격: \(sellPrice), 수량: \(sellQuantity)"
                     }
                 } else {
                     await MainActor.run {
@@ -242,7 +273,7 @@ class TradeManager: ObservableObject {
         return try await UpbitAPI.shared.fetchTicker(market: market.id)
     }
 
-    private func fetchKRWBalance() async throws -> Double {
+    public func fetchKRWBalance() async throws -> Double {
         let accounts = try await UpbitAPI.shared.fetchAccounts()
         guard let krwAccount = accounts.first(where: { $0.currency == "KRW" }) else {
             throw TradeError.insufficientBalance
