@@ -38,6 +38,10 @@
     - 로그 띄워줄 UI
     - 매수,매도 executeTrade() 함수 구현
     - 시장가에 대해 전액 매도 sellAllHoldings() 함수 구현
+   
+### 6일차 (Day 6)
+- **주요 작업**:
+  - 현재 잔고를 보여주는 Text 및 기능 추가
 
 ## To-Do List
 - [X] 종목 Mysql에 저장
